@@ -1,1 +1,3 @@
 rgkit/
+venv/
+*pyc
