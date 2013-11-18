@@ -9,22 +9,35 @@ class Robot(object):
         self.print_turn()
         self.surrounding = rg.locs_around(self.location,
                                           filter_out=('invalid', 'obstacle'))
+        enemies = [r for _, r in self.g['robots'].items()
+                   if not self.on_team(r)]
+        print "{n} enemies alive this turn".format(n=len(enemies))
         neighbors = self.nearby_robots(self.location)
         print "saw {} nearby robots".format(len(neighbors))
-        enemies = [r for r in neighbors
-                   if not self.on_team(r)]
-        print "saw {} enemies".format(len(enemies))
+        neighbor_enemies = [r for r in neighbors
+                            if not self.on_team(r)]
+        print "saw {} neighbor_enemies".format(len(neighbor_enemies))
 
-        if self.should_suicide(enemies):
-            print "committing suicide - {e} enemies / {hp} hp left" \
-              .format(e=len(enemies), hp=self.hp)
+        # Suicide?
+        if self.should_suicide(neighbor_enemies):
+            print "committing suicide - {e} neighbor_enemies / {hp} hp left" \
+              .format(e=len(neighbor_enemies), hp=self.hp)
             return ['suicide']
 
-        target = self.choose_target(enemies)
+        # Attack?
+        target = self.choose_target(neighbor_enemies)
         if target:
             print "attacking {}".format(target.location)
             return ['attack', target.location]
 
+        # Nearby enemy?
+        nearest_enemy, enemy_distance = self.nearest_enemy(self.location, enemies)
+        print "Nearest enemy is {d} away".format(d=enemy_distance)
+        if self.should_chase(enemy_distance):
+            print "chasing enemy @ {l}".format(l=nearest_enemy.location)
+            return ['move', rg.toward(self.location, nearest_enemy.location)]
+
+        # Otherwise, go to the gathering point
         to_gathering = rg.toward(self.location, self.GATHERING)
         robot_in_way = [r for r in neighbors
                          if r.location == to_gathering]
@@ -49,11 +62,27 @@ class Robot(object):
                 min_hp = r.hp
         return target
 
+    def nearest_enemy(self, location, enemies):
+        nearest = None
+        nearest_dist = -1
+        for robot in enemies:
+            robot_walk_dist = rg.wdist(robot.location, location)
+            if robot_walk_dist < nearest_dist \
+                or nearest_dist == -1:
+                nearest_dist = robot_walk_dist
+                nearest = robot
+        return nearest, nearest_dist
+
+    CHASE_THRESHOLD = 5
+
+    def should_chase(self, nearest_dist):
+        return nearest_dist < self.CHASE_THRESHOLD
+
     SUICIDE_THRESHOLD = 7
     SUICIDE_TURN_THRESHOLD = 90
 
-    def should_suicide(self, enemies):
-        return len(enemies) > 1 \
+    def should_suicide(self, neighbor_enemies):
+        return len(neighbor_enemies) > 1 \
           and self.hp < self.SUICIDE_THRESHOLD \
           and self.g['turn'] < self.SUICIDE_TURN_THRESHOLD
 
