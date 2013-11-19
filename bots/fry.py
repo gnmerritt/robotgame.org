@@ -13,10 +13,10 @@ class Robot(object):
                    if not self.on_team(r)]
         print "{n} enemies alive this turn".format(n=len(enemies))
         neighbors = self.nearby_robots(self.location)
-        print "saw {} nearby robots".format(len(neighbors))
+        print "saw {n} nearby robots".format(n=len(neighbors))
         neighbor_enemies = [r for r in neighbors
                             if not self.on_team(r)]
-        print "saw {} neighbor_enemies".format(len(neighbor_enemies))
+        print "saw {n} neighbor_enemies".format(n=len(neighbor_enemies))
 
         # Suicide?
         if self.should_suicide(neighbor_enemies):
@@ -27,7 +27,7 @@ class Robot(object):
         # Attack?
         target = self.choose_target(neighbor_enemies)
         if target:
-            print "attacking {}".format(target.location)
+            print "attacking {l}".format(l=target.location)
             return ['attack', target.location]
 
         # Nearby enemy?
