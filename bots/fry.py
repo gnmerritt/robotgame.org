@@ -31,17 +31,19 @@ class Robot(object):
             return ['attack', target.location]
 
         # Nearby enemy?
-        nearest_enemy, enemy_distance = self.nearest_enemy(self.location, enemies)
+        nearest_enemy, enemy_distance = \
+           self.nearest_enemy(self.location, enemies)
         print "Nearest enemy is {d} away".format(d=enemy_distance)
         if self.should_chase(enemy_distance):
             print "chasing enemy @ {l}".format(l=nearest_enemy.location)
-            return ['move', rg.toward(self.location, nearest_enemy.location)]
+            return ['move',
+                    rg.toward(self.location, nearest_enemy.location)]
 
         # Otherwise, go to the gathering point
         to_gathering = rg.toward(self.location, self.GATHERING)
         robot_in_way = [r for r in neighbors
                          if r.location == to_gathering]
-        if not robot_in_way:
+        if not robot_in_way and to_gathering != self.location:
             print "moving towards gathering"
             return ['move', to_gathering]
 
