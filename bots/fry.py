@@ -1,6 +1,9 @@
 import rg
 
 class Robot(object):
+    """Fry! My first crack at robotgame
+    http://robotgame.org/viewrobot/4184
+    """
     MAX_HP = 50
     GATHERING = rg.CENTER_POINT
 
