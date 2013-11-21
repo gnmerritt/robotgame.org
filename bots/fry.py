@@ -28,6 +28,11 @@ class Robot(object):
               .format(e=len(neighbor_enemies), hp=self.hp)
             return ['suicide']
 
+        # Run?
+        if self.should_run(neighbor_enemies):
+            print "saw more than one nearby enemy, running"
+            #return ['guard']
+
         # Attack?
         target = self.choose_target(neighbor_enemies)
         if target:
@@ -123,22 +128,24 @@ class Robot(object):
                 nearest = robot
         return nearest, nearest_dist
 
-    CHASE_THRESHOLD = 5
+    CHASE_DIST_THRESH = 5
+    CHASE_HP_THRESH = 20
 
     def should_chase(self, nearest_dist):
-        return nearest_dist < self.CHASE_THRESHOLD
+        return nearest_dist < self.CHASE_DIST_THRESH \
+          and self.hp > self.CHASE_HP_THRESH
 
-    SUICIDE_THRESHOLD = 7
-    SUICIDE_TURN_THRESHOLD = 90
+    def should_run(self, enemies):
+        return len(enemies) > 1
+
+    AVG_DAMAGE = 9
 
     def should_suicide(self, neighbor_enemies):
-        return len(neighbor_enemies) > 1 \
-          and self.hp < self.SUICIDE_THRESHOLD \
-          and self.g['turn'] < self.SUICIDE_TURN_THRESHOLD
+        return len(neighbor_enemies) * self.AVG_DAMAGE > self.hp
 
     def on_team(self, robot):
         return self.player_id == robot.player_id
 
     def print_turn(self):
-        print "-- robot @ {l} starting turn {t} --" \
-          .format(l=self.location, t=self.g['turn'])
+        print "-- robot @ {l} [hp={hp}] starting turn {t} --" \
+          .format(l=self.location, hp=self.hp, t=self.g['turn'])
