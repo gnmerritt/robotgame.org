@@ -2,7 +2,7 @@ import rg
 
 class Robot(object):
     """Dumb bot from http://robotgame.org/gettingstarted"""
-    def act(self, game)
+    def act(self, game):
         # if we're in the center, stay put
         if self.location == rg.CENTER_POINT:
             return ['guard']
