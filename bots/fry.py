@@ -100,11 +100,14 @@ class Robot(object):
             return num
 
     def is_blocked(self, dest):
+        filter = {'invalid', 'obstacle'}
         if not dest:
             return True
         for loc, bot in self.g['robots'].items():
             if loc == dest:
                 return True
+        if len(filter & set(rg.loc_types(dest))) != 0:
+            return True
         return False
 
     def nearby_robots(self, loc):
