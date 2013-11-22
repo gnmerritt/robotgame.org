@@ -100,7 +100,7 @@ class Robot(object):
             return num
 
     def is_blocked(self, dest):
-        filter = {'invalid', 'obstacle'}
+        filter = set(['invalid', 'obstacle'])
         if not dest:
             return True
         for loc, bot in self.g['robots'].items():
