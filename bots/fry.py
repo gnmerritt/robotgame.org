@@ -7,6 +7,7 @@ class Robot(object):
     """
     MAX_HP = 50
     GATHERING = rg.CENTER_POINT
+    SILENT = False
 
     def act(self, game):
         self.g = game
@@ -15,36 +16,39 @@ class Robot(object):
                                           filter_out=('invalid', 'obstacle'))
         enemies = [r for _, r in self.g['robots'].items()
                    if not self.on_team(r)]
-        print "{n} enemies alive this turn".format(n=len(enemies))
+        self.say("{n} enemies alive this turn".format(n=len(enemies)))
         neighbors = self.nearby_robots(self.location)
-        print "saw {n} nearby robots".format(n=len(neighbors))
+        self.say("saw {n} nearby robots".format(n=len(neighbors)))
         neighbor_enemies = [r for r in neighbors
                             if not self.on_team(r)]
-        print "saw {n} neighbor_enemies".format(n=len(neighbor_enemies))
+        self.say("saw {n} neighbor_enemies".format(n=len(neighbor_enemies)))
 
         # Suicide?
         if self.should_suicide(neighbor_enemies):
-            print "committing suicide - {e} neighbor_enemies / {hp} hp left" \
-              .format(e=len(neighbor_enemies), hp=self.hp)
+            self.say("committing suicide - {e} neighbor_enemies / {hp} hp left"
+                     .format(e=len(neighbor_enemies), hp=self.hp))
             return ['suicide']
 
         # Run?
         if self.should_run(neighbor_enemies):
-            print "saw more than one nearby enemy, running"
-            #return ['guard']
+            self.say("trying to run")
+            run_to = self.find_escape(neighbors)
+            if run_to:
+                self.say("found escape {l} going to it".format(l=run_to))
+                return ['move', run_to]
 
         # Attack?
         target = self.choose_target(neighbor_enemies)
         if target:
-            print "attacking {l}".format(l=target.location)
+            self.say("attacking {l}".format(l=target.location))
             return ['attack', target.location]
 
         # Nearby enemy?
         nearest_enemy, enemy_distance = \
            self.nearest_enemy(self.location, enemies)
-        print "Nearest enemy is {d} away".format(d=enemy_distance)
+        self.say("Nearest enemy is {d} away".format(d=enemy_distance))
         if self.should_chase(enemy_distance):
-            print "try to chase enemy @ {l}".format(l=nearest_enemy.location)
+            self.say("try to chase enemy @ {l}".format(l=nearest_enemy.location))
             to_enemy = self.step_toward(self.location,
                                         nearest_enemy.location)
             if to_enemy:
@@ -53,10 +57,10 @@ class Robot(object):
         # Otherwise, go to the gathering point
         to_gathering = self.step_toward(self.location, self.GATHERING)
         if to_gathering:
-            print "moving towards gathering"
+            self.say("moving towards gathering")
             return ['move', to_gathering]
 
-        print "didn't move or attack, guarding"
+        self.say("didn't move or attack, guarding")
         return ['guard']
 
     def step_toward(self, loc, dest):
@@ -67,8 +71,8 @@ class Robot(object):
         x_diff, y_diff = x - x0, y - y0
         dx, dy = abs(x_diff), abs(y_diff)
 
-        print "from {l} to {d}: delta={t}"\
-          .format(l=loc, d=dest, t=(dx,dy))
+        self.say("from {l} to {d}: delta={t}"
+                 .format(l=loc, d=dest, t=(dx,dy)))
 
         forward_x = (self.add_sign(x0, x_diff), y0)
         forward_y = (x0, self.add_sign(y0, y_diff))
@@ -136,7 +140,17 @@ class Robot(object):
           and self.hp > self.CHASE_HP_THRESH
 
     def should_run(self, enemies):
-        return len(enemies) > 1
+        """Run if the enemy is about to suicide or we're outnumbered"""
+        return len(enemies) == 1 and \
+          enemies[0].hp <= 8 \
+          or len(enemies) > 1
+
+    def find_escape(self, neighbors):
+        neighbor_locs = set([n.location for n in neighbors])
+        for s in self.surrounding:
+            if not s in neighbor_locs:
+                return s
+        return None
 
     AVG_DAMAGE = 9
 
@@ -147,5 +161,9 @@ class Robot(object):
         return self.player_id == robot.player_id
 
     def print_turn(self):
-        print "-- robot @ {l} [hp={hp}] starting turn {t} --" \
-          .format(l=self.location, hp=self.hp, t=self.g['turn'])
+        self.say("-- robot @ {l} [hp={hp}] starting turn {t} --"
+                 .format(l=self.location, hp=self.hp, t=self.g['turn']))
+
+    def say(self, what):
+        if not self.SILENT:
+            print what
