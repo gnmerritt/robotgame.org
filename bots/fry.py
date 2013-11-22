@@ -153,9 +153,9 @@ class Robot(object):
 
     def should_run(self, enemies):
         """Run if the enemy is about to suicide or we're outnumbered"""
-        return len(enemies) == 1 and \
-          enemies[0].hp <= 8 \
-          or len(enemies) > 1
+        expecting_suicide = len(enemies) == 1 and enemies[0].hp <= 8
+        too_many = len(enemies) > 1
+        return expecting_suicide or too_many
 
     def find_escape(self, neighbors):
         neighbor_locs = set([n.location for n in neighbors])
