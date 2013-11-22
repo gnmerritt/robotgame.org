@@ -29,6 +29,16 @@ class Robot(object):
                      .format(e=len(neighbor_enemies), hp=self.hp))
             return ['suicide']
 
+        to_gathering = self.step_toward(self.location, self.GATHERING)
+        # On a spawn point?
+        if self.on_spawn_unsafe():
+            if to_gathering:
+                self.say("unsafe on spawn point! running!")
+                return ['move', to_gathering]
+            else:
+                self.say("can't get off spawn point, exploding")
+                return ['suicide']
+
         # Run?
         if self.should_run(neighbor_enemies):
             self.say("trying to run")
@@ -55,7 +65,6 @@ class Robot(object):
                 return ['move', to_enemy]
 
         # Otherwise, go to the gathering point
-        to_gathering = self.step_toward(self.location, self.GATHERING)
         if to_gathering:
             self.say("moving towards gathering")
             return ['move', to_gathering]
@@ -155,6 +164,13 @@ class Robot(object):
                 return s
         return None
 
+    def on_spawn_unsafe(self):
+        return self.turn() % 10 == 0 and \
+          self.on_spawn_point()
+
+    def on_spawn_point(self):
+        return 'spawn' in rg.loc_types(self.location)
+
     AVG_DAMAGE = 9
 
     def should_suicide(self, neighbor_enemies):
@@ -165,8 +181,11 @@ class Robot(object):
 
     def print_turn(self):
         self.say("-- robot @ {l} [hp={hp}] starting turn {t} --"
-                 .format(l=self.location, hp=self.hp, t=self.g['turn']))
+                 .format(l=self.location, hp=self.hp, t=self.turn()))
 
     def say(self, what):
         if not self.SILENT:
             print what
+
+    def turn(self):
+        return self.g['turn'] + 1
