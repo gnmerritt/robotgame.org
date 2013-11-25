@@ -6,8 +6,14 @@ class Robot(object):
     http://robotgame.org/viewrobot/4184
     """
     MAX_HP = 50
+    AVG_DAMAGE = 9
     GATHERING = rg.CENTER_POINT
-    SILENT = False
+
+    # Behavior constants
+    CHASE_DIST_THRESH = 5
+    CHASE_HP_THRESH = 30
+
+    SILENT = True
 
     def act(self, game):
         self.g = game
@@ -144,9 +150,6 @@ class Robot(object):
                 nearest = robot
         return nearest, nearest_dist
 
-    CHASE_DIST_THRESH = 5
-    CHASE_HP_THRESH = 20
-
     def should_chase(self, nearest_dist):
         return nearest_dist < self.CHASE_DIST_THRESH \
           and self.hp > self.CHASE_HP_THRESH
@@ -170,8 +173,6 @@ class Robot(object):
 
     def on_spawn_point(self):
         return 'spawn' in rg.loc_types(self.location)
-
-    AVG_DAMAGE = 9
 
     def should_suicide(self, neighbor_enemies):
         return len(neighbor_enemies) * self.AVG_DAMAGE > self.hp
