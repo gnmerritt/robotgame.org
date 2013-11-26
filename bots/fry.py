@@ -11,7 +11,6 @@ class Robot(object):
 
     # Behavior constants
     CHASE_DIST_THRESH = 5
-    CHASE_HP_THRESH = 30
 
     SILENT = False
 
@@ -158,10 +157,10 @@ class Robot(object):
         return nearest, nearest_dist
 
     def should_chase(self, enemy, nearest_dist):
-        weak = enemy.hp <= self.AVG_DAMAGE * 2
+        weak = enemy.hp <= self.AVG_DAMAGE * 2 \
+          and enemy.hp < self.hp
         close = nearest_dist < self.CHASE_DIST_THRESH
-        return close and weak \
-          and self.hp > self.CHASE_HP_THRESH
+        return close and weak
 
     def should_attack_empty(self, enemy, nearest_dist):
         if nearest_dist == 2:
