@@ -13,7 +13,7 @@ class Robot(object):
     CHASE_DIST_THRESH = 5
     CHASE_HP_THRESH = 30
 
-    SILENT = True
+    SILENT = False
 
     def act(self, game):
         self.g = game
@@ -63,12 +63,19 @@ class Robot(object):
         nearest_enemy, enemy_distance = \
            self.nearest_enemy(self.location, enemies)
         self.say("Nearest enemy is {d} away".format(d=enemy_distance))
-        if self.should_chase(enemy_distance):
+        if self.should_chase(nearest_enemy, enemy_distance):
             self.say("try to chase enemy @ {l}".format(l=nearest_enemy.location))
             to_enemy = self.step_toward(self.location,
                                         nearest_enemy.location)
             if to_enemy:
                 return ['move', to_enemy]
+
+        # Attack where an enemy is about to move?
+        empty_attack_space = self.should_attack_empty(nearest_enemy, enemy_distance)
+        if empty_attack_space:
+            self.say("attacking {e} where enemy might move"
+                     .format(e=empty_attack_space))
+            return ['attack', empty_attack_space]
 
         # Otherwise, go to the gathering point
         if to_gathering:
@@ -150,9 +157,18 @@ class Robot(object):
                 nearest = robot
         return nearest, nearest_dist
 
-    def should_chase(self, nearest_dist):
-        return nearest_dist < self.CHASE_DIST_THRESH \
+    def should_chase(self, enemy, nearest_dist):
+        weak = enemy.hp <= self.AVG_DAMAGE * 2
+        close = nearest_dist < self.CHASE_DIST_THRESH
+        return close and weak \
           and self.hp > self.CHASE_HP_THRESH
+
+    def should_attack_empty(self, enemy, nearest_dist):
+        if nearest_dist == 2:
+            self.say("Defensive attack: us={us},them={them}"
+                     .format(us=self.location, them=enemy.location))
+            return self.step_toward(self.location, enemy.location)
+        return None
 
     def should_run(self, enemies):
         """Run if the enemy is about to suicide or we're outnumbered"""
