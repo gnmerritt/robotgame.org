@@ -121,19 +121,19 @@ class Robot(object):
             return num
 
     def is_blocked(self, dest):
-        filter = set(['invalid', 'obstacle'])
         if not dest:
             return True
-        for loc, bot in self.g['robots'].items():
-            if loc == dest:
-                return True
+        if dest in self.g.robots:
+            return True
+        filter = set(['invalid', 'obstacle'])
         if len(filter & set(rg.loc_types(dest))) != 0:
             return True
         return False
 
-    def nearby_robots(self, loc):
+    def nearby_robots(self, center):
+        locs = rg.locs_around(center)
         return [bot for loc, bot in self.g['robots'].items()
-                if loc in self.surrounding]
+                if loc in locs]
 
     def choose_target(self, robots):
         """Always attack the weakest robot"""
