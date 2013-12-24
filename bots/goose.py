@@ -8,10 +8,7 @@ class Robot(object):
     AVG_DAMAGE = 9
     GATHERING = rg.CENTER_POINT
 
-    # Behavior constants
-    CHASE_DIST_THRESH = 5
-
-    SILENT = False
+    SILENT = True
 
     def setup_turn(self, game):
         self.g = game
@@ -69,28 +66,37 @@ class Robot(object):
         def inner(location):
             # avoid spawn points
             if self.nav.is_spawn_point(location) and \
-              self.incoming_spawns():
+                self.incoming_spawns():
                 return -1000
 
             enemies = self.nearby_robots(location, allies=False)
-            #friends = self.nearby_robots(location, allies=True)
+            friends = self.nearby_robots(location, allies=True)
 
-            hp_gradient = self.hp_gradient(location)
-
-            if len(enemies) > 0 and hp_gradient > 0:
+            if len(enemies) > 0:
                 for enemy in enemies:
-                    self.say("AA - see enemy and positive gradient")
+                    self.say("AA - see enemy")
                     if enemy.hp <= self.AVG_DAMAGE * 2 or \
                       len(self.nearby_robots(enemy.location, allies=True)) >= 1:
                       self.say("AA - hp low or already somebody attacking")
                       # favorable attack, go here
-                      return 1000
+                      if rg.dist(self.location, enemy.location) == 1:
+                          self.say("AA - in position to attack {l}"
+                                   .format(l=enemy.location))
+                          return 1000
+                      else:
+                          return 900
+
+            hp_gradient = self.hp_gradient(location)
+            if len(friends) > 1:
+                hp_gradient *= -1
+
+            total = hp_gradient
 
             towards_loc = self.nav.step_toward(self.location, location)
             if not towards_loc:
-                hp_gradient -= 50
+                total -= 50
 
-            return hp_gradient
+            return total
 
         # memoize
         if not location in self.__scores:
@@ -100,7 +106,7 @@ class Robot(object):
     def hp_gradient(self, location):
         def inner(location):
             sum = 0
-            search_locs = self.nav.locs_around(location, radius=6)
+            search_locs = self.nav.locs_around(location, radius=4)
 
             for loc in search_locs:
                 if loc in self.g.robots:
@@ -151,25 +157,12 @@ class Robot(object):
                 nearest = robot
         return nearest, nearest_dist
 
-    def should_chase(self, enemy, nearest_dist):
-        weak = enemy.hp <= self.AVG_DAMAGE * 2 \
-          and enemy.hp < self.hp
-        close = nearest_dist < self.CHASE_DIST_THRESH
-        return close and weak
-
     def should_attack_empty(self, enemy, nearest_dist):
         if nearest_dist == 2:
             self.say("Defensive attack: us={us},them={them}"
                      .format(us=self.location, them=enemy.location))
             return self.nav.step_toward(self.location, enemy.location)
         return None
-
-    def should_run(self, enemies):
-        """Run if the enemy is about to suicide or we're outnumbered"""
-        expecting_suicide = len(enemies) == 1 and enemies[0].hp <= 8
-        dodging_suicide = self.turn() % 5 != 0
-        too_many = len(enemies) > 1
-        return (expecting_suicide and dodging_suicide) or too_many
 
     def incoming_spawns(self):
         """Returns True if spawning new robots this turn or next"""
