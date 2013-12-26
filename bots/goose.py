@@ -1,42 +1,71 @@
 import rg
 import settings as rgs
 
-class Robot(object):
-    """Goose!
-    http://robotgame.org/viewrobot/8130
-    """
-    AVG_DAMAGE = 9
 
+class GameWatcher(object):
     SILENT = False
 
-    def setup_turn(self, game):
+    def __init__(self, game=None):
         self.g = game
-        self.nav = Navigator(game)
-        self.enemies = [r for _, r in self.g['robots'].items()
-                        if not self.on_team(r)]
-        self.friends = [r for _, r in self.g['robots'].items()
-                        if self.on_team(r)]
 
-        self.debug = False
+    def say(self, what, prefix="   ", level=0):
+        if not self.SILENT:
+            print prefix + what
+
+    def turn(self):
+        return self.g['turn'] + 1
+
+
+class Robot(GameWatcher):
+    """Goose! Every robot calculates a complete set of the next
+    turn's moves, and then returns the move for itself.
+    http://robotgame.org/viewrobot/8130
+    """
 
     def act(self, game):
-        self.setup_turn(game)
+        """Method called by the game controller"""
+        self.g = game
+        brain = RobotBrain(game).setup_turn(self)
+        moves = brain.calculate_moves()
 
-        moves = self.calculate_moves()
-        if self.debug:
+        if brain.is_debug_robot() or True:
             self.print_turn()
             self.say("Move debugger: {m}".format(m=moves))
         my_move = moves[self.location]
 
         return my_move
 
+    def print_turn(self):
+        self.say("-- Goose: robot @ {l} [hp={hp}] starting turn {t} --"
+                 .format(l=self.location, hp=self.hp, t=self.turn()),
+                 prefix="")
+
+
+class RobotBrain(GameWatcher):
+    """A master controller that makes a set of moves for all robots"""
+
+    AVG_DAMAGE = 9
+
+    def setup_turn(self, robot):
+        self.robot = robot
+        self.nav = Navigator(self.g)
+
+        self.enemies = {}
+        self.friends = {}
+        for loc, bot in self.g['robots'].items():
+            if self.on_team(bot):
+                self.friends[loc] = bot
+            else:
+                self.enemies[loc] = bot
+        return self
+
     def calculate_moves(self):
         """Calculates moves for all robots, and returns them in a map
         Robot loc -> [move list]"""
         moves = {}
 
-        for f in self.friends:
-            moves[f.location] = ['guard']
+        for loc, _ in self.friends.items():
+            moves[loc] = ['guard']
 
         return moves
 
@@ -107,23 +136,13 @@ class Robot(object):
         return len(neighbor_enemies) * self.AVG_DAMAGE > self.hp
 
     def on_team(self, robot):
-        return self.player_id == robot.player_id
+        return self.robot.player_id == robot.player_id
 
-    def print_turn(self):
-        self.say("-- Goose: robot @ {l} [hp={hp}] starting turn {t} --"
-                 .format(l=self.location, hp=self.hp, t=self.turn()),
-                 prefix="")
+    def is_debug_robot(self):
+        return self.robot.location == min(self.friends.keys())
 
-    def say(self, what, prefix="   ", level=0):
-        if not self.SILENT:
-            print prefix + what
-
-    def turn(self):
-        return self.g['turn'] + 1
-
-class Navigator(object):
-    def __init__(self, game):
-        self.g = game
+class Navigator(GameWatcher):
+    """Handles point-to-point navigation for a single robot"""
 
     def step_toward(self, loc, dest):
         """Ant navigation with basic block checking
