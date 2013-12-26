@@ -6,9 +6,8 @@ class Robot(object):
     http://robotgame.org/viewrobot/8130
     """
     AVG_DAMAGE = 9
-    GATHERING = rg.CENTER_POINT
 
-    SILENT = True
+    SILENT = False
 
     def setup_turn(self, game):
         self.g = game
@@ -17,112 +16,29 @@ class Robot(object):
                         if not self.on_team(r)]
         self.friends = [r for _, r in self.g['robots'].items()
                         if self.on_team(r)]
-        self.__scores = {}
-        self.__hp_grad = {}
+
+        self.debug = False
 
     def act(self, game):
         self.setup_turn(game)
-        self.print_turn()
 
-        search_locs = self.nav.locs_around(self.location, radius=5)
-        destination = self.select_destination(search_locs)
+        moves = self.calculate_moves()
+        if self.debug:
+            self.print_turn()
+            self.say("Move debugger: {m}".format(m=moves))
+        my_move = moves[self.location]
 
-        if destination:
-            if destination == self.location:
-                self.say("best destination is current location, staying put")
-                target = self.choose_target(
-                    self.nearby_robots(self.location, allies=False))
-                if target:
-                    self.say("attacking robot @ {l} with hp={hp}"
-                             .format(l=target.location, hp=target.hp))
-                    return ['attack', target.location]
-                else:
-                    return ['guard']
-            else:
-                self.say("moving to {d}".format(d=destination))
-                towards = self.nav.step_toward(self.location, destination)
-                if towards:
-                    return ['move', towards]
+        return my_move
 
-        self.say("didn't move or attack, guarding")
-        return ['guard']
+    def calculate_moves(self):
+        """Calculates moves for all robots, and returns them in a map
+        Robot loc -> [move list]"""
+        moves = {}
 
-    def select_destination(self, locs):
-        best_dest = self.location
-        best_score = self.weigh_location(best_dest)
+        for f in self.friends:
+            moves[f.location] = ['guard']
 
-        self.say("current loc has score of {b}".format(b=best_score))
-
-        for loc in locs:
-            score = self.weigh_location(loc)
-            self.say("got score {s} @ {l}".format(s=score, l=loc))
-            if score > best_score:
-                best_score = score
-                best_dest = loc
-        return best_dest
-
-    def weigh_location(self, location):
-        """Returns a number indicating how favorable moving here is"""
-        def inner(location):
-            # avoid spawn points
-            if self.nav.is_spawn_point(location) and \
-                self.incoming_spawns():
-                return -1000
-
-            enemies = self.nearby_robots(location, allies=False)
-            friends = self.nearby_robots(location, allies=True)
-
-            if len(enemies) > 0:
-                for enemy in enemies:
-                    self.say("AA - see enemy")
-                    if enemy.hp <= self.AVG_DAMAGE * 2 or \
-                      len(self.nearby_robots(enemy.location, allies=True)) >= 1:
-                      self.say("AA - hp low or already somebody attacking")
-                      # favorable attack, go here
-                      if rg.dist(self.location, enemy.location) == 1:
-                          self.say("AA - in position to attack {l}"
-                                   .format(l=enemy.location))
-                          return 1000
-                      else:
-                          return 900
-
-            hp_gradient = self.hp_gradient(location)
-            if len(friends) > 1:
-                hp_gradient *= -1
-
-            total = hp_gradient
-
-            towards_loc = self.nav.step_toward(self.location, location)
-            if not towards_loc:
-                total -= 50
-
-            return total
-
-        # memoize
-        if not location in self.__scores:
-            self.__scores[location] = inner(location)
-        return self.__scores[location]
-
-    def hp_gradient(self, location):
-        def inner(location):
-            sum = 0
-            search_locs = self.nav.locs_around(location, radius=4)
-
-            for loc in search_locs:
-                if loc in self.g.robots:
-                    robot = self.g.robots[loc]
-                    dist = rg.wdist(location, robot.location)
-                    hp_weight = robot.hp / max(dist, 1)
-                    if self.on_team(robot):
-                        sum += hp_weight
-                    else:
-                        sum -= hp_weight
-            return sum
-
-        # memoize
-        if not location in self.__hp_grad:
-            self.__hp_grad[location] = inner(location)
-        return self.__hp_grad[location]
+        return moves
 
     def nearby_robots(self, center, allies=True):
         locs = rg.locs_around(center)
@@ -135,6 +51,23 @@ class Robot(object):
         for r in robots:
             sum += r.hp
         return sum
+
+    def under_attack(self, current, enemy):
+        num_attacking = len(self.nearby_robots(enemy.location, allies=True))
+        if rg.dist(current, enemy.location) == 1:
+            self.say("saw ourself, lowering num attacking")
+            num_attacking -= 1
+
+        locs_around = self.nav.locs_around(enemy.location, radius=2)
+        friends_around = [self.g.robots[l] for l in locs_around
+                          if l in self.g.robots and self.on_team(self.g.robots[l])]
+        num_friends = len(friends_around)
+
+        if current in [f.location for f in friends_around]:
+            self.say("saw ourself, lowering num_friends")
+            num_friends -= 1
+
+        return num_attacking > 0 or num_friends > 0
 
     def choose_target(self, robots):
         """Always attack the weakest robot"""
@@ -159,8 +92,8 @@ class Robot(object):
 
     def should_attack_empty(self, enemy, nearest_dist):
         if nearest_dist == 2:
-            self.say("Defensive attack: us={us},them={them}"
-                     .format(us=self.location, them=enemy.location))
+            self.say("Defensive attack: current={current},them={them}"
+                     .format(current=self.location, them=enemy.location))
             return self.nav.step_toward(self.location, enemy.location)
         return None
 
@@ -240,6 +173,8 @@ class Navigator(object):
                                 filter_out=('invalid', 'obstacle'))
         # base case
         if radius == 1:
+            if not top_level:
+                around.append(location)
             return around
 
         # recursively accumulate
@@ -252,7 +187,7 @@ class Navigator(object):
         # don't return the original location
         if top_level and location in results:
             results.remove(location)
-        return results
+        return list(results)
 
     def find_escape(self, from_loc, neighbor_bots):
         neighbor_locs = set([n.location for n in neighbor_bots])
