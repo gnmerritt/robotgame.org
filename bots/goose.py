@@ -28,7 +28,7 @@ class Robot(GameWatcher):
         brain = RobotBrain(game).setup_turn(self)
         moves = brain.calculate_moves()
 
-        if brain.is_debug_robot() or True:
+        if brain.is_debug_robot():
             self.print_turn()
             self.say("Move debugger: {m}".format(m=moves))
         my_move = moves[self.location]
@@ -64,8 +64,25 @@ class RobotBrain(GameWatcher):
         Robot loc -> [move list]"""
         moves = {}
 
-        for loc, _ in self.friends.items():
-            moves[loc] = ['guard']
+        enemies_under_attack = [e for _, e in self.enemies.items() if
+                                self.under_attack(e)]
+
+        for loc, bot in self.friends.items():
+            for e in enemies_under_attack:
+                dist = rg.wdist(loc, e.location)
+                if dist > 1:
+                    towards_enemy = self.nav.step_toward(loc, e.location)
+                    if towards_enemy:
+                        self.nav.add_destination(towards_enemy)
+                        moves[loc] = ['move', towards_enemy]
+                        break
+                if dist == 1:
+                    moves[loc] = ['attack', e.location]
+                    break
+
+            # fall back to guarding
+            if not loc in moves:
+                moves[loc] = ['guard']
 
         return moves
 
@@ -81,22 +98,15 @@ class RobotBrain(GameWatcher):
             sum += r.hp
         return sum
 
-    def under_attack(self, current, enemy):
+    def under_attack(self, enemy):
         num_attacking = len(self.nearby_robots(enemy.location, allies=True))
-        if rg.dist(current, enemy.location) == 1:
-            self.say("saw ourself, lowering num attacking")
-            num_attacking -= 1
 
         locs_around = self.nav.locs_around(enemy.location, radius=2)
         friends_around = [self.g.robots[l] for l in locs_around
                           if l in self.g.robots and self.on_team(self.g.robots[l])]
         num_friends = len(friends_around)
 
-        if current in [f.location for f in friends_around]:
-            self.say("saw ourself, lowering num_friends")
-            num_friends -= 1
-
-        return num_attacking > 0 or num_friends > 0
+        return num_attacking > 0 or num_friends > 1
 
     def choose_target(self, robots):
         """Always attack the weakest robot"""
@@ -143,6 +153,14 @@ class RobotBrain(GameWatcher):
 
 class Navigator(GameWatcher):
     """Handles point-to-point navigation for a single robot"""
+    destinations = None
+
+    def add_destination(self, loc):
+        """Record a space as a destination so we don't have robot collisions"""
+        if not self.destinations:
+            self.destinations = set()
+        if loc:
+            self.destinations.add(loc)
 
     def step_toward(self, loc, dest):
         """Ant navigation with basic block checking
@@ -181,6 +199,8 @@ class Navigator(GameWatcher):
         if not dest:
             return True
         if dest in self.g.robots:
+            return True
+        if self.destinations and dest in self.destinations:
             return True
         filter = set(['invalid', 'obstacle'])
         if len(filter & set(rg.loc_types(dest))) != 0:
