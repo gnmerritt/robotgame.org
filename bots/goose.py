@@ -8,7 +8,7 @@ class GameWatcher(object):
     def __init__(self, game=None):
         self.g = game
 
-    def say(self, what, prefix="   ", level=0):
+    def say(self, what, prefix="   "):
         if not self.SILENT:
             print prefix + what
 
@@ -46,6 +46,11 @@ class RobotBrain(GameWatcher):
 
     AVG_DAMAGE = 9
 
+    def say(self, what):
+        if self.is_debug_robot():
+            super(RobotBrain, self).say(what)
+
+
     def setup_turn(self, robot):
         self.robot = robot
         self.nav = Navigator(self.g)
@@ -68,17 +73,63 @@ class RobotBrain(GameWatcher):
                                 self.under_attack(e)]
 
         for loc, bot in self.friends.items():
+            self.say("Finding move for robot at {l}".format(l=loc))
+
+            if self.nav.is_spawn_point(loc) and self.incoming_spawns():
+                spawn_escape = self.nav.find_escape(loc,
+                                                    lambda l: not self.nav.is_spawn_point(l))
+                if spawn_escape:
+                    away = self.nav.step_toward(loc, spawn_escape)
+                    if away:
+                        self.nav.add_destination(away)
+                        moves[loc] = ['move', away]
+
+            # TODO: better breaking between moves
+            if loc in moves:
+                continue
+
+            # See if we should attack or run away from a current enemy
+            neighbor_enemies = self.nearby_robots(loc, allies=False)
+            if neighbor_enemies:
+                attacked_neighbors = [e for e in neighbor_enemies if
+                                      e in enemies_under_attack]
+
+                if not attacked_neighbors or len(neighbor_enemies) > 1:
+                    escape = self.nav.step_toward(loc, self.nav.find_escape(loc))
+                    if escape:
+                        moves[loc] = ['move', escape]
+                    elif len(neighbor_enemies) > 1:
+                        # last ditch suicide
+                        for e in neighbor_enemies:
+                            if e.hp <= rgs.settings.suicide_damage \
+                              or len(neighbor_enemies) * self.AVG_DAMAGE > bot.hp:
+                                self.say("suicide :-(")
+                                moves[loc] = ['suicide']
+                else:
+                    target = self.choose_target(attacked_neighbors)
+                    if target:
+                        self.say("attacking enemy @ {e}".format(e=target.location))
+                        moves[loc] = ['attack', target.location]
+
+            # TODO: better breaking between moves
+            if loc in moves:
+                continue
+
+            # Look for an enemy to go attack
+            best_target = None
+            best_score = 9999
             for e in enemies_under_attack:
                 dist = rg.wdist(loc, e.location)
-                if dist > 1:
-                    towards_enemy = self.nav.step_toward(loc, e.location)
-                    if towards_enemy:
-                        self.nav.add_destination(towards_enemy)
-                        moves[loc] = ['move', towards_enemy]
-                        break
-                if dist == 1:
-                    moves[loc] = ['attack', e.location]
-                    break
+                score = (2 * dist) + e.hp
+                if score <= best_score:
+                    best_target = e
+                    best_score = score
+
+            if best_target:
+                towards_enemy = self.nav.step_toward(loc, best_target.location)
+                if towards_enemy:
+                    self.nav.add_destination(towards_enemy)
+                    moves[loc] = ['move', towards_enemy]
 
             # fall back to guarding
             if not loc in moves:
@@ -91,12 +142,6 @@ class RobotBrain(GameWatcher):
         return [bot for loc, bot in self.g['robots'].items()
                 if loc in locs and
                 self.on_team(bot) == allies]
-
-    def hp_sum(self, robots):
-        sum = 0
-        for r in robots:
-            sum += r.hp
-        return sum
 
     def under_attack(self, enemy):
         num_attacking = len(self.nearby_robots(enemy.location, allies=True))
@@ -118,17 +163,6 @@ class RobotBrain(GameWatcher):
                 min_hp = r.hp
         return target
 
-    def nearest_enemy(self, location, enemies):
-        nearest = None
-        nearest_dist = -1
-        for robot in enemies:
-            robot_walk_dist = rg.wdist(robot.location, location)
-            if robot_walk_dist < nearest_dist \
-                or nearest_dist == -1:
-                nearest_dist = robot_walk_dist
-                nearest = robot
-        return nearest, nearest_dist
-
     def should_attack_empty(self, enemy, nearest_dist):
         if nearest_dist == 2:
             self.say("Defensive attack: current={current},them={them}"
@@ -141,9 +175,6 @@ class RobotBrain(GameWatcher):
         next_spawn = self.turn() % rgs.settings.spawn_every
         return (next_spawn == 0 or
                 next_spawn == rgs.settings.spawn_every - 1)
-
-    def should_suicide(self, neighbor_enemies):
-        return len(neighbor_enemies) * self.AVG_DAMAGE > self.hp
 
     def on_team(self, robot):
         return self.robot.player_id == robot.player_id
@@ -165,6 +196,8 @@ class Navigator(GameWatcher):
     def step_toward(self, loc, dest):
         """Ant navigation with basic block checking
         Returns a move destination or None"""
+        if not dest:
+            return None
         x0, y0 = loc
         x, y = dest
         x_diff, y_diff = x - x0, y - y0
@@ -221,18 +254,16 @@ class Navigator(GameWatcher):
         for l in around:
             results.extend(self.locs_around(l, radius=radius-1, top_level=False))
 
-        results = set(results)
-
         # don't return the original location
         if top_level and location in results:
             results.remove(location)
-        return list(results)
+        return results
 
-    def find_escape(self, from_loc, neighbor_bots):
-        neighbor_locs = set([n.location for n in neighbor_bots])
+    def find_escape(self, from_loc, filter_func=None):
         for s in self.locs_around(from_loc):
-            if not s in neighbor_locs:
-                return s
+            if not self.is_blocked(s):
+                if not filter_func or filter_func(s):
+                    return s
         return None
 
     def is_spawn_point(self, loc):
