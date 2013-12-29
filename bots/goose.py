@@ -57,7 +57,6 @@ class RobotBrain(GameWatcher):
     def setup_turn(self, robot):
         self.robot = robot
         self.nav = Navigator(self.g)
-
         self.debug = None
 
         self.enemies = {}
@@ -102,21 +101,29 @@ class RobotBrain(GameWatcher):
                 attacked_neighbors = [e for e in neighbor_enemies if
                                       e in enemies_under_attack]
 
-                if not attacked_neighbors or len(neighbor_enemies) > 1:
-                    escape_safe = lambda e: len(neighbor_enemies) > len(self.nearby_robots(e, allies=False))
-                    escape = self.nav.step_toward(loc, self.nav.find_escape(loc, escape_safe))
+                if not attacked_neighbors or len(neighbor_enemies) > 1 or \
+                    self.expecting_suicide(neighbor_enemies):
+                    self.say("trying to escape")
+
+                    escape_safe = lambda e: self.safe_escape(e, neighbor_enemies)
+                    escape = self.nav.step_toward(loc,
+                                                  self.nav.find_escape(loc, escape_safe))
                     if escape:
-                        self.say("no attacked neighbors or too many enemies, escaping")
+                        self.say("successful escape")
                         self.nav.add_destination(loc, escape)
                         moves[loc] = ['move', escape]
                     elif len(neighbor_enemies) > 1:
                         # last ditch suicide
                         for e in neighbor_enemies:
-                            low_hp = len(neighbor_enemies) * self.AVG_DAMAGE > bot.hp
+                            low_hp = len(neighbor_enemies) * self.AVG_DAMAGE >= bot.hp
                             if e.hp <= rgs.settings.suicide_damage or low_hp:
                                 self.say("suicide (surrounded) :-(")
                                 moves[loc] = ['suicide']
-                                break
+                    elif not loc in moves:
+                        # attack because we can't escape and didn't suicide
+                        self.say("attack unfavorably - can't escape")
+                        moves[loc] = ['attack',
+                                      self.choose_target(neighbor_enemies).location]
                 else:
                     target = self.choose_target(attacked_neighbors)
                     if target:
@@ -151,6 +158,7 @@ class RobotBrain(GameWatcher):
                     self.nav.add_destination(loc, towards_enemy)
                     moves[loc] = ['move', towards_enemy]
 
+            # TODO: better breaking between moves
             if loc in moves:
                 continue
 
@@ -167,6 +175,11 @@ class RobotBrain(GameWatcher):
             if not loc in moves:
                 self.say("guarding - probably not good")
                 moves[loc] = ['guard']
+            else:
+                # sanity check - don't move onto our own location
+                if moves[loc] == ['move', loc]:
+                    self.say("bug - tried to move onto ourself")
+                    moves[loc] = ['guard']
 
         return moves
 
@@ -193,6 +206,20 @@ class RobotBrain(GameWatcher):
 
         return num_attacking > 0 or num_friends > 2
 
+    def safe_escape(self, escape, current_enemies):
+        """Return True if the locations looks safe to flee too"""
+        enemies_around_escape = self.nearby_robots(escape, allies=False)
+        return not self.expecting_suicide(enemies_around_escape) and \
+            len(enemies_around_escape) < len(current_enemies)
+
+    def expecting_suicide(self, enemies):
+        """Do we think one of these enemies will commit suicide"""
+        for e in enemies:
+            friends_around = self.nearby_robots(e.location, allies=True)
+            if e.hp <= len(friends_around) * self.AVG_DAMAGE:
+                return True
+        return False
+
     def choose_target(self, robots):
         """Always attack the weakest robot"""
         target = None
@@ -202,13 +229,6 @@ class RobotBrain(GameWatcher):
                 target = r
                 min_hp = r.hp
         return target
-
-    def should_attack_empty(self, enemy, nearest_dist):
-        if nearest_dist == 2:
-            self.say("Defensive attack: current={current},them={them}"
-                     .format(current=self.location, them=enemy.location))
-            return self.nav.step_toward(self.location, enemy.location)
-        return None
 
     def on_team(self, robot):
         return self.robot.player_id == robot.player_id
