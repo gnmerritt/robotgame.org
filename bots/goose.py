@@ -69,11 +69,12 @@ class RobotBrain(GameWatcher):
         Robot loc -> [move list]"""
         moves = {}
 
-        enemies_under_attack = [e for _, e in self.enemies.items() if
-                                self.under_attack(e)]
-
         for loc, bot in self.friends.items():
             self.say("Finding move for robot at {l}".format(l=loc))
+
+            enemies_under_attack = [e for _, e in self.enemies.items() if
+                                    self.under_attack(e, bot)]
+
 
             if self.nav.is_spawn_point(loc) and self.incoming_spawns():
                 spawn_escape = self.nav.find_escape(loc,
@@ -81,8 +82,12 @@ class RobotBrain(GameWatcher):
                 if spawn_escape:
                     away = self.nav.step_toward(loc, spawn_escape)
                     if away:
-                        self.nav.add_destination(away)
+                        self.say("escaping spawn")
+                        self.nav.add_destination(loc, away)
                         moves[loc] = ['move', away]
+                else:
+                    self.say("suicide (trapped on spawn)")
+                    moves[loc] = ['suicide']
 
             # TODO: better breaking between moves
             if loc in moves:
@@ -95,16 +100,20 @@ class RobotBrain(GameWatcher):
                                       e in enemies_under_attack]
 
                 if not attacked_neighbors or len(neighbor_enemies) > 1:
-                    escape = self.nav.step_toward(loc, self.nav.find_escape(loc))
+                    escape_safe = lambda e: len(neighbor_enemies) > len(self.nearby_robots(e, allies=False))
+                    escape = self.nav.step_toward(loc, self.nav.find_escape(loc, escape_safe))
                     if escape:
+                        self.say("no attacked neighbors or too many enemies, escaping")
+                        self.nav.add_destination(loc, escape)
                         moves[loc] = ['move', escape]
                     elif len(neighbor_enemies) > 1:
                         # last ditch suicide
                         for e in neighbor_enemies:
-                            if e.hp <= rgs.settings.suicide_damage \
-                              or len(neighbor_enemies) * self.AVG_DAMAGE > bot.hp:
-                                self.say("suicide :-(")
+                            low_hp = len(neighbor_enemies) * self.AVG_DAMAGE > bot.hp
+                            if e.hp <= rgs.settings.suicide_damage or low_hp:
+                                self.say("suicide (surrounded) :-(")
                                 moves[loc] = ['suicide']
+                                break
                 else:
                     target = self.choose_target(attacked_neighbors)
                     if target:
@@ -115,43 +124,68 @@ class RobotBrain(GameWatcher):
             if loc in moves:
                 continue
 
-            # Look for an enemy to go attack
+            # Look for an enemy to go towards & attack
             best_target = None
             best_score = 9999
             for e in enemies_under_attack:
                 dist = rg.wdist(loc, e.location)
-                score = (2 * dist) + e.hp
+                score = (4 * dist) + e.hp
                 if score <= best_score:
-                    best_target = e
-                    best_score = score
+                    towards_enemy = self.nav.step_toward(loc, e.location)
+                    enemies_at_dest = len(self.nearby_robots(towards_enemy,
+                                                             allies=False))
+                    if enemies_at_dest <= 1:
+                        best_target = e
+                        best_score = score
 
             if best_target:
                 towards_enemy = self.nav.step_toward(loc, best_target.location)
                 if towards_enemy:
-                    self.nav.add_destination(towards_enemy)
+                    self.say("moving towards enemy")
+                    self.nav.add_destination(loc, towards_enemy)
                     moves[loc] = ['move', towards_enemy]
+
+            if loc in moves:
+                continue
+
+            # defensive attack towards a space an enemy might move?
+            for e_loc, e in self.enemies.items():
+                if rg.wdist(loc, e_loc) == 2:
+                    towards_empty = self.nav.step_toward(loc, e_loc)
+                    if towards_empty:
+                        self.say("attacking empty space")
+                        moves[loc] = ['attack', towards_empty]
+                        break
 
             # fall back to guarding
             if not loc in moves:
+                self.say("guarding - probably not good")
                 moves[loc] = ['guard']
 
         return moves
 
     def nearby_robots(self, center, allies=True):
+        if not center:
+            return []
         locs = rg.locs_around(center)
         return [bot for loc, bot in self.g['robots'].items()
                 if loc in locs and
                 self.on_team(bot) == allies]
 
-    def under_attack(self, enemy):
-        num_attacking = len(self.nearby_robots(enemy.location, allies=True))
+    def under_attack(self, enemy, us=None):
+        attackers = self.nearby_robots(enemy.location, allies=True)
+        num_attacking = len(attackers)
+        if us in attackers:
+            num_attacking -= 1
 
         locs_around = self.nav.locs_around(enemy.location, radius=2)
         friends_around = [self.g.robots[l] for l in locs_around
                           if l in self.g.robots and self.on_team(self.g.robots[l])]
         num_friends = len(friends_around)
+        if us in friends_around:
+            num_friends -= 1
 
-        return num_attacking > 0 or num_friends > 1
+        return num_attacking > 0 or num_friends > 2
 
     def choose_target(self, robots):
         """Always attack the weakest robot"""
@@ -173,8 +207,7 @@ class RobotBrain(GameWatcher):
     def incoming_spawns(self):
         """Returns True if spawning new robots this turn or next"""
         next_spawn = self.turn() % rgs.settings.spawn_every
-        return (next_spawn == 0 or
-                next_spawn == rgs.settings.spawn_every - 1)
+        return next_spawn == 0
 
     def on_team(self, robot):
         return self.robot.player_id == robot.player_id
@@ -185,13 +218,17 @@ class RobotBrain(GameWatcher):
 class Navigator(GameWatcher):
     """Handles point-to-point navigation for a single robot"""
     destinations = None
+    departures = None
 
-    def add_destination(self, loc):
+    def add_destination(self, current, dest):
         """Record a space as a destination so we don't have robot collisions"""
         if not self.destinations:
             self.destinations = set()
-        if loc:
-            self.destinations.add(loc)
+            self.departures = set()
+        if current:
+            self.departures.add(current)
+        if dest:
+            self.destinations.add(dest)
 
     def step_toward(self, loc, dest):
         """Ant navigation with basic block checking
@@ -232,7 +269,11 @@ class Navigator(GameWatcher):
         if not dest:
             return True
         if dest in self.g.robots:
+            # Our robot is about to vacate this space
+            if self.departures and dest in self.departures:
+                return False
             return True
+        # Our robot is about to move into this space, don't collide
         if self.destinations and dest in self.destinations:
             return True
         filter = set(['invalid', 'obstacle'])
