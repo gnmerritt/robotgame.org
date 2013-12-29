@@ -15,6 +15,10 @@ class GameWatcher(object):
     def turn(self):
         return self.g['turn'] + 1
 
+    def incoming_spawns(self):
+        """Returns True if spawning new robots this turn"""
+        next_spawn = self.turn() % rgs.settings.spawn_every
+        return next_spawn == 1
 
 class Robot(GameWatcher):
     """Goose! Every robot calculates a complete set of the next
@@ -46,14 +50,15 @@ class RobotBrain(GameWatcher):
 
     AVG_DAMAGE = 9
 
-    def say(self, what):
+    def say(self, what, prefix="   "):
         if self.is_debug_robot():
-            super(RobotBrain, self).say(what)
-
+            super(RobotBrain, self).say(what, prefix)
 
     def setup_turn(self, robot):
         self.robot = robot
         self.nav = Navigator(self.g)
+
+        self.debug = None
 
         self.enemies = {}
         self.friends = {}
@@ -70,15 +75,13 @@ class RobotBrain(GameWatcher):
         moves = {}
 
         for loc, bot in self.friends.items():
-            self.say("Finding move for robot at {l}".format(l=loc))
+            self.say("Finding move for robot at {l}".format(l=loc), prefix=" ")
 
             enemies_under_attack = [e for _, e in self.enemies.items() if
                                     self.under_attack(e, bot)]
 
-
             if self.nav.is_spawn_point(loc) and self.incoming_spawns():
-                spawn_escape = self.nav.find_escape(loc,
-                                                    lambda l: not self.nav.is_spawn_point(l))
+                spawn_escape = self.nav.find_escape(loc)
                 if spawn_escape:
                     away = self.nav.step_toward(loc, spawn_escape)
                     if away:
@@ -140,7 +143,10 @@ class RobotBrain(GameWatcher):
 
             if best_target:
                 towards_enemy = self.nav.step_toward(loc, best_target.location)
-                if towards_enemy:
+                if rg.wdist(loc, best_target.location) <= 1:
+                    self.say("bug - attacking late")
+                    moves[loc] = ['attack', best_target.location]
+                elif towards_enemy:
                     self.say("moving towards enemy")
                     self.nav.add_destination(loc, towards_enemy)
                     moves[loc] = ['move', towards_enemy]
@@ -204,16 +210,13 @@ class RobotBrain(GameWatcher):
             return self.nav.step_toward(self.location, enemy.location)
         return None
 
-    def incoming_spawns(self):
-        """Returns True if spawning new robots this turn or next"""
-        next_spawn = self.turn() % rgs.settings.spawn_every
-        return next_spawn == 0
-
     def on_team(self, robot):
         return self.robot.player_id == robot.player_id
 
     def is_debug_robot(self):
-        return self.robot.location == min(self.friends.keys())
+        if self.debug is None:
+            self.debug = self.robot.location == min(self.friends.keys())
+        return self.debug
 
 class Navigator(GameWatcher):
     """Handles point-to-point navigation for a single robot"""
@@ -303,7 +306,8 @@ class Navigator(GameWatcher):
     def find_escape(self, from_loc, filter_func=None):
         for s in self.locs_around(from_loc):
             if not self.is_blocked(s):
-                if not filter_func or filter_func(s):
+                if (not filter_func or filter_func(s)) and \
+                  (not self.incoming_spawns() or not self.is_spawn_point(s)):
                     return s
         return None
 
