@@ -57,15 +57,16 @@ class RobotBrain(GameWatcher):
     def setup_turn(self, robot):
         self.robot = robot
         self.nav = Navigator(self.g)
-        self.debug = None
 
-        self.enemies = {}
-        self.friends = {}
+        self.enemies = []
+        self.friends = []
         for loc, bot in self.g['robots'].items():
+            pair = (loc, bot)
             if self.on_team(bot):
-                self.friends[loc] = bot
+                self.friends.append(pair)
             else:
-                self.enemies[loc] = bot
+                self.enemies.append(pair)
+        self.friends.sort()
         return self
 
     def calculate_moves(self):
@@ -73,11 +74,11 @@ class RobotBrain(GameWatcher):
         Robot loc -> [move list]"""
         moves = {}
 
-        for loc, bot in self.friends.items():
+        for loc, bot in self.friends:
             self.say("Finding move for robot at {l}".format(l=loc), prefix=" ")
 
-            enemies_under_attack = [e for _, e in self.enemies.items() if
-                                    self.under_attack(e, bot)]
+            enemies_under_attack = [e for _, e in self.enemies
+                                    if self.under_attack(e, bot)]
 
             if self.nav.is_spawn_point(loc) and self.incoming_spawns():
                 spawn_escape = self.nav.find_escape(loc)
@@ -163,7 +164,7 @@ class RobotBrain(GameWatcher):
                 continue
 
             # defensive attack towards a space an enemy might move?
-            for e_loc, e in self.enemies.items():
+            for e_loc, e in self.enemies:
                 if rg.wdist(loc, e_loc) == 2:
                     towards_empty = self.nav.step_toward(loc, e_loc)
                     if towards_empty:
@@ -240,9 +241,8 @@ class RobotBrain(GameWatcher):
         return self.robot.player_id == robot.player_id
 
     def is_debug_robot(self):
-        if self.debug is None:
-            self.debug = self.robot.location == min(self.friends.keys())
-        return self.debug
+        return self.robot.location == self.friends[0][0]
+
 
 class Navigator(GameWatcher):
     """Handles point-to-point navigation for a single robot"""
