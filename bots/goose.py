@@ -173,8 +173,14 @@ class RobotBrain(GameWatcher):
 
             # fall back to guarding
             if not loc in moves:
-                self.say("guarding - probably not good")
-                moves[loc] = ['guard']
+                # but don't stay on spawn points. its a dumb place to stay.
+                if self.nav.is_spawn_point(loc):
+                    spawn_escape = self.nav.find_escape(loc)
+                    if spawn_escape:
+                        moves[loc] = ['move', spawn_escape]
+                else:
+                    self.say("guarding - probably not good")
+                    moves[loc] = ['guard']
             else:
                 # sanity check - don't move onto our own location
                 if moves[loc] == ['move', loc]:
