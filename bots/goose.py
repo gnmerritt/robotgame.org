@@ -120,7 +120,8 @@ class RobotBrain(GameWatcher):
                             if e.hp <= rgs.settings.suicide_damage or low_hp:
                                 self.say("suicide (surrounded) :-(")
                                 moves[loc] = ['suicide']
-                    elif not loc in moves:
+
+                    if not loc in moves:
                         # attack because we can't escape and didn't suicide
                         self.say("attack unfavorably - can't escape")
                         moves[loc] = ['attack',
@@ -172,21 +173,22 @@ class RobotBrain(GameWatcher):
                         moves[loc] = ['attack', towards_empty]
                         break
 
-            # fall back to guarding
+            # don't stay on spawn points. they're a dumb place to stay
             if not loc in moves:
-                # but don't stay on spawn points. its a dumb place to stay.
                 if self.nav.is_spawn_point(loc):
                     spawn_escape = self.nav.find_escape(loc)
                     if spawn_escape:
                         moves[loc] = ['move', spawn_escape]
-                else:
-                    self.say("guarding - probably not good")
-                    moves[loc] = ['guard']
             else:
                 # sanity check - don't move onto our own location
                 if moves[loc] == ['move', loc]:
                     self.say("bug - tried to move onto ourself")
                     moves[loc] = ['guard']
+
+            # still nothing? guard to be safe
+            if not loc in moves:
+                self.say("guarding - probably not good")
+                moves[loc] = ['guard']
 
         return moves
 
